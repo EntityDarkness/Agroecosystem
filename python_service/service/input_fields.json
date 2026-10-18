@@ -1,0 +1,397 @@
+[
+  {
+    "key": "ХПК_КТ1",
+    "title": "ХПК КТ1",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "ХПК_КТ2",
+    "title": "ХПК КТ2",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "ХПК_КТ3",
+    "title": "ХПК КТ3",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "ХПК_КТ4",
+    "title": "ХПК КТ4",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "ХПК_КТ5",
+    "title": "ХПК КТ5",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "БПК5_КТ1",
+    "title": "БПК5 КТ1",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "БПК5_КТ2",
+    "title": "БПК5 КТ2",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "БПК5_КТ3",
+    "title": "БПК5 КТ3",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "БПК5_КТ4",
+    "title": "БПК5 КТ4",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "БПК5_КТ5",
+    "title": "БПК5 КТ5",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Аммоний_КТ1",
+    "title": "Аммоний КТ1",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Аммоний_КТ2",
+    "title": "Аммоний КТ2",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Аммоний_КТ3",
+    "title": "Аммоний КТ3",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Аммоний_КТ4",
+    "title": "Аммоний КТ4",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Аммоний_КТ5",
+    "title": "Аммоний КТ5",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Фосфаты_КТ1",
+    "title": "Фосфаты КТ1",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Фосфаты_КТ2",
+    "title": "Фосфаты КТ2",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Фосфаты_КТ3",
+    "title": "Фосфаты КТ3",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Фосфаты_КТ4",
+    "title": "Фосфаты КТ4",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Фосфаты_КТ5",
+    "title": "Фосфаты КТ5",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Нитраты_КТ1",
+    "title": "Нитраты КТ1",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Нитраты_КТ2",
+    "title": "Нитраты КТ2",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Нитраты_КТ3",
+    "title": "Нитраты КТ3",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Нитраты_КТ4",
+    "title": "Нитраты КТ4",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Нитраты_КТ5",
+    "title": "Нитраты КТ5",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Нитриты_КТ1",
+    "title": "Нитриты КТ1",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Нитриты_КТ2",
+    "title": "Нитриты КТ2",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Нитриты_КТ3",
+    "title": "Нитриты КТ3",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Нитриты_КТ4",
+    "title": "Нитриты КТ4",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Нитриты_КТ5",
+    "title": "Нитриты КТ5",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Жиры_КТ1",
+    "title": "Жиры КТ1",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Жиры_КТ2",
+    "title": "Жиры КТ2",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Жиры_КТ3",
+    "title": "Жиры КТ3",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Жиры_КТ4",
+    "title": "Жиры КТ4",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Жиры_КТ5",
+    "title": "Жиры КТ5",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Сульфаты_КТ1",
+    "title": "Сульфаты КТ1",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Сульфаты_КТ2",
+    "title": "Сульфаты КТ2",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Сульфаты_КТ3",
+    "title": "Сульфаты КТ3",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Сульфаты_КТ4",
+    "title": "Сульфаты КТ4",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Сульфаты_КТ5",
+    "title": "Сульфаты КТ5",
+    "group": "water",
+    "unit": "мг/дм³",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "SED_Водородный_показатель_рН_ед.рН_КТ5",
+    "title": "Водородный показатель рН ед.рН КТ5",
+    "group": "sediments",
+    "unit": "ед. pH",
+    "required": true,
+    "min": 0,
+    "max": 14
+  },
+  {
+    "key": "SED_Массовая_доля_нитратов_мг/кг_КТ5",
+    "title": "Массовая доля нитратов мг/кг КТ5",
+    "group": "sediments",
+    "unit": "мг/кг",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "SED_Массовая_доля_аммонийного_азота_мг/кг_(обменный)_КТ5",
+    "title": "Массовая доля аммонийного азота мг/кг (обменный) КТ5",
+    "group": "sediments",
+    "unit": "мг/кг",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "SED_Сухой_остаток_%_КТ5",
+    "title": "Сухой остаток % КТ5",
+    "group": "sediments",
+    "unit": "%",
+    "required": true,
+    "min": 0,
+    "max": 100
+  },
+  {
+    "key": "SED_Органическое_вещество_%_КТ5",
+    "title": "Органическое вещество % КТ5",
+    "group": "sediments",
+    "unit": "%",
+    "required": true,
+    "min": 0,
+    "max": 100
+  },
+  {
+    "key": "SED_Фосфор_подвижный_мг/кг_КТ5",
+    "title": "Фосфор подвижный мг/кг КТ5",
+    "group": "sediments",
+    "unit": "мг/кг",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "SED_Хлориды_мг/кг_КТ5",
+    "title": "Хлориды мг/кг КТ5",
+    "group": "sediments",
+    "unit": "мг/кг",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "общий_объём",
+    "title": "общий объём",
+    "group": "operation",
+    "unit": "м³/мес",
+    "required": true,
+    "min": 0
+  },
+  {
+    "key": "Всего_препарата_л",
+    "title": "Всего препарата л",
+    "group": "operation",
+    "unit": "л/мес",
+    "required": true,
+    "min": 0
+  }
+]

@@ -154,6 +154,8 @@ def main() -> None:
         "uvicorn.lifespan.on",
         "--add-data",
         add_data,
+        "--add-data",
+        f"{ROOT / 'service' / 'input_fields.json'}{os.pathsep}service",
         str(entry),
     ]
     print(" ".join(cmd), flush=True)

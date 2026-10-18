@@ -17,7 +17,7 @@ from service.registry import Registry
 
 
 def _names(model) -> list[str]:
-    names = getattr(model, "feature_names_", None)
+    names = getattr(model, "feature_names_", getattr(model, "feature_names_in_", None))
     if names is None:
         raise RuntimeError("У модели нет feature_names_")
     return [str(name) for name in list(names)]

@@ -24,7 +24,7 @@ class DosingIn(BaseModel):
 
 
 class DataIn(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", allow_inf_nan=False)
 
     month: str
     values: dict[str, float | int | None] | None = None

@@ -1,0 +1,8 @@
+.venv/
+.tools/
+artifacts/
+__pycache__/
+*.pyc
+AgroecosystemTauri/src-tauri/target/
+AgroecosystemTauri/src-tauri/binaries/*.exe
+AgroecosystemTauri/src-tauri/binaries/python_service-*

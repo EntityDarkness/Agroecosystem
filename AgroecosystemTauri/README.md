@@ -1,7 +1,14 @@
-# Tauri + Vanilla
+# Агроэкосистема
 
-This template should help get you started developing with Tauri in vanilla HTML, CSS and Javascript.
+Настольный клиент Windows на Tauri 2. Интерфейс реализован по прочитанному прототипу Figma: стартовое меню, контрольные точки, ввод замеров, прогноз и общий отчёт. Не связанные переходами разделы прототипа дополнены в том же оформлении.
 
-## Recommended IDE Setup
+- 49 обязательных полей: вода КТ1–КТ5, донные отложения, объёмы и препарат.
+- Черновики по месяцам, импорт JSON и подтверждение обновления истории.
+- Восемь прогнозов воды, расчёт дозировки и 14 прогнозов отложений.
+- История, диаграммы и CSV для Excel.
+- Автоматический запуск и завершение локального ML-sidecar, обновление моделей с резервной копией.
+- Один экземпляр приложения; для работы не нужны Python, Node.js или интернет.
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+Команды подготовки, разработки, сборки и проверок: [BUILD.md](../BUILD.md).
+
+Готовый установщик после сборки находится в корневом `artifacts/`. CSV и JSON установленный клиент сохраняет в `Загрузки/Агроэкосистема`.
