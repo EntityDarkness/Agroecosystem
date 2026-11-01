@@ -21,28 +21,41 @@ export const monthName = (value) =>
     : "Последний доступный месяц";
 export const isDesktop = () => Boolean(window.__TAURI__?.core);
 
-export async function request(path, body, timeout = 300000) {
+export async function request(
+  path,
+  body,
+  timeout = 300000,
+  method = body === undefined ? "GET" : "POST",
+) {
   if (isDesktop())
     return window.__TAURI__.core.invoke("service_request", {
       path,
       body: body ?? null,
+      method,
     });
   if (!import.meta.env.DEV)
     throw new Error("Откройте приложение через установленный клиент Tauri.");
   const response = await fetch(
     `${import.meta.env.VITE_SERVICE_URL ?? "http://127.0.0.1:8765"}${path}`,
     {
-      method: body === undefined ? "GET" : "POST",
+      method,
       headers: { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(timeout),
     },
   );
+  if (response.status === 204) return null;
   const result = await response.json();
   if (!response.ok)
     throw new Error(
       typeof result.detail === "string"
-        ? result.detail
+        ? result.detail +
+            (result.errors
+              ? ": " +
+                result.errors
+                  .map((e) => `${e.loc.join(".")}: ${e.msg}`)
+                  .join("; ")
+              : "")
         : JSON.stringify(result.detail),
     );
   return result;

@@ -9,7 +9,16 @@ from service.config import DOSING_RAW_PATH
 def estimate_dosing_effect(path=DOSING_RAW_PATH) -> float:
     """alpha из пары «до/после ввода» 24.06.2023. Фоллбек 0.4, как в ноутбуке."""
     try:
-        dosing = pd.read_csv(path, encoding="utf-8-sig")
+        from service.database import initialized, SessionLocal
+        if initialized and path == DOSING_RAW_PATH:
+            from service.models import SourceDataset
+            with SessionLocal() as session:
+                source = session.get(SourceDataset, path.name)
+                dosing = pd.DataFrame(source.rows) if source else pd.DataFrame()
+            if dosing.empty:
+                return 0.4
+        else:
+            dosing = pd.read_csv(path, encoding="utf-8-sig")
     except FileNotFoundError:
         return 0.4
     dosing.columns = [str(c).strip() for c in dosing.columns]

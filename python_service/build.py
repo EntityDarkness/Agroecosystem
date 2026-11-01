@@ -141,6 +141,8 @@ def main() -> None:
         "--collect-submodules",
         "service",
         "--hidden-import",
+        "sqlalchemy.dialects.sqlite",
+        "--hidden-import",
         "service.main",
         "--hidden-import",
         "uvicorn.logging",

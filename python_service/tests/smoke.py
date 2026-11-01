@@ -1,6 +1,8 @@
 import json
+import os
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -8,10 +10,7 @@ sys.path.insert(0, str(ROOT))
 
 from fastapi.testclient import TestClient
 
-from service.main import app
-from service.config import MODELS_DIR, PANEL_PATH
-
-client = TestClient(app)
+client = None
 
 
 def show(title, response):
@@ -52,26 +51,29 @@ def main():
     assert any(item["current"] is not None for item in sed["sediments"])
     assert all(isinstance(item["value"], float) for item in sed["sediments"])
 
-    backup = PANEL_PATH.read_bytes()
-    try:
-        created = show(
-            "insert",
-            client.post(
-                "/data",
-                json={"month": "2099-01", "ХПК_КТ5": 12.5, "БПК5_КТ5": 1.2},
-            ),
-        )
-        assert created["action"] == "inserted"
-        updated = client.post("/data", json={"month": "2099-01-01", "values": {"ХПК_КТ5": 20}})
-        body = show("update", updated)
-        assert body["action"] == "updated"
-        bad = client.post("/data", json={"month": "2099-02", "BOD_KT5_lag1": 1})
-        assert bad.status_code == 400, bad.text
-    finally:
-        PANEL_PATH.write_bytes(backup)
+    created = show(
+        "insert",
+        client.post(
+            "/data",
+            json={"month": "2099-01", "ХПК_КТ5": 12.5, "БПК5_КТ5": 1.2},
+        ),
+    )
+    assert created["action"] == "inserted"
+    updated = client.post("/data", json={"month": "2099-01-01", "values": {"ХПК_КТ5": 20}})
+    body = show("update", updated)
+    assert body["action"] == "updated"
+    bad = client.post("/data", json={"month": "2099-02", "BOD_KT5_lag1": 1})
+    assert bad.status_code == 400, bad.text
 
     print("\nfast checks ok")
 
 
 if __name__ == "__main__":
-    main()
+    with tempfile.TemporaryDirectory(prefix="wtp-smoke-") as directory:
+        data = Path(directory) / "data"
+        shutil.copytree(ROOT / "data", data, ignore=shutil.ignore_patterns("*.sqlite3*"))
+        os.environ["WTP_DATA_DIR"] = str(data)
+        os.environ.pop("DATABASE_URL", None)
+        from service.main import app
+        with TestClient(app) as client:
+            main()

@@ -1,4 +1,4 @@
-"""Загрузка panel_monthly.csv и дозапись строк.
+"""Первичный импорт CSV и загрузка месячной панели из SQLite.
 
 Полный dropna() по этой панели даёт 0 строк: десятки колонок пустые на всём
 горизонте 2000–2026. Поэтому:
@@ -13,7 +13,6 @@ from __future__ import annotations
 import pandas as pd
 
 from service.config import (
-    COMPUTED_COLUMNS,
     DRUG_PATH,
     MONTHS_RU,
     PANEL_PATH,
@@ -61,6 +60,10 @@ def load_drug_monthly() -> pd.DataFrame:
 
 
 def load_model_frame() -> pd.DataFrame:
+    from service.database import initialized
+    if initialized:
+        from service.catalog_service import load_database_frame
+        return load_database_frame()
     raw = _read_raw()
     raw = raw.rename(columns={c: normalize_column(c) for c in raw.columns})
     if "month" not in raw.columns:
@@ -83,6 +86,8 @@ def load_model_frame() -> pd.DataFrame:
         if column in drugs.columns:
             frame[column] = frame[column].fillna(drugs[column])
 
+    from service.catalog_service import project_measurements
+    frame = project_measurements(frame)
     frame["Год"] = frame.index.year.astype(float)
     frame = frame.drop(columns=[c for c in ("month_sin", "month_cos", "is_winter") if c in frame.columns])
     return frame
@@ -95,82 +100,9 @@ def parse_month(value: str) -> pd.Timestamp:
     return pd.Timestamp(year=int(ts.year), month=int(ts.month), day=1)
 
 
-def _column_lookup(columns: list[str]) -> dict[str, str]:
-    lookup: dict[str, str] = {}
-    for column in columns:
-        lookup[column] = column
-        lookup[normalize_column(column)] = column
-    return lookup
-
-
 def append_month(month: str, values: dict) -> dict:
-    if not values:
-        raise ValueError("Пустой набор значений")
-
-    rejected = sorted(
-        key for key in values if normalize_column(str(key)) in COMPUTED_COLUMNS or str(key) in COMPUTED_COLUMNS
-    )
-    if rejected:
-        raise ValueError(
-            "Это вычисляемые признаки, в панель их писать не нужно: " + ", ".join(rejected)
-        )
-
-    stamp = parse_month(month)
-    month_label = stamp.strftime("%Y-%m-%d")
-    frame = _read_raw()
-    if "month" not in frame.columns:
-        raise ValueError("В panel_monthly.csv нет колонки month")
-
-    lookup = _column_lookup(list(frame.columns))
-    unknown_new: list[str] = []
-    updates: dict[str, float] = {}
-    for key, raw_value in values.items():
-        if raw_value is None or (isinstance(raw_value, str) and raw_value.strip() == ""):
-            continue
-        number = pd.to_numeric(raw_value, errors="coerce")
-        if pd.isna(number):
-            raise ValueError(f"Нечисловое значение в {key!r}: {raw_value!r}")
-        column = lookup.get(key) or lookup.get(normalize_column(str(key)))
-        if column is None:
-            column = normalize_column(str(key))
-            if column == "month":
-                raise ValueError("month задаётся отдельным полем")
-            unknown_new.append(column)
-            frame[column] = float("nan")
-            lookup[column] = column
-        updates[column] = float(number)
-
-    if not updates:
-        raise ValueError("Нет числовых полей для записи")
-
-    parsed = pd.to_datetime(frame["month"], errors="coerce")
-    mask = parsed.dt.to_period("M") == stamp.to_period("M")
-    if mask.any():
-        block = frame.loc[mask]
-        merged = {"month": month_label}
-        for column in frame.columns:
-            if column == "month":
-                continue
-            numeric = pd.to_numeric(block[column], errors="coerce")
-            merged[column] = float(numeric.mean()) if numeric.notna().any() else float("nan")
-        merged.update(updates)
-        frame = frame.loc[~mask]
-        frame = pd.concat([frame, pd.DataFrame([merged])], ignore_index=True)
-        action = "updated"
-    else:
-        row = {column: (month_label if column == "month" else float("nan")) for column in frame.columns}
-        row.update(updates)
-        frame = pd.concat([frame, pd.DataFrame([row])], ignore_index=True)
-        action = "inserted"
-
-    frame["_month_sort"] = pd.to_datetime(frame["month"], errors="coerce")
-    frame = frame.sort_values("_month_sort").drop(columns="_month_sort")
-    frame.to_csv(PANEL_PATH, index=False, encoding="utf-8")
-
-    return {
-        "month": month_label,
-        "action": action,
-        "columns": list(updates),
-        "added_columns": unknown_new,
-        "rows": int(len(frame)),
-    }
+    """Write one month to SQLite; CSV files are never changed by this method."""
+    from service.database import init_database
+    from service.catalog_service import append_database_month
+    init_database()
+    return append_database_month(month, values)

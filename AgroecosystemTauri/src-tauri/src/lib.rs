@@ -74,18 +74,29 @@ fn export_report(app: tauri::AppHandle, contents: String, format: String) -> Res
 }
 
 #[tauri::command]
-async fn service_request(state: tauri::State<'_, Service>, path: String, body: Option<Value>) -> Result<Value, String> {
+async fn service_request(state: tauri::State<'_, Service>, path: String, body: Option<Value>, method: Option<String>) -> Result<Value, String> {
     if let Some(error) = &state.startup_error { return Err(error.clone()); }
-    let allowed = matches!(path.as_str(), "/health" | "/meta" | "/dataset" | "/observations" | "/predict/indicators" | "/predict/dosing" | "/predict/sediments" | "/retrain")
-        || (path.starts_with("/observations/") && path[14..].chars().all(|c| c.is_ascii_digit() || c == '-'));
+    let endpoint = path.split('?').next().unwrap_or("");
+    let catalog = ["/api/points", "/api/indicators", "/api/measurements"].iter().any(|base| {
+        endpoint == *base || endpoint.strip_prefix(&format!("{base}/")).is_some_and(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()))
+    });
+    let month_form = endpoint.strip_prefix("/api/months/").is_some_and(|month| month.len() == 7 && month.chars().all(|c| c.is_ascii_digit() || c == '-'));
+    let series = endpoint.strip_prefix("/api/series/").is_some_and(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()));
+    let allowed = path.len() <= 4096 && !path.contains(['#', '\\', '\r', '\n']) && (catalog || month_form || series
+        || matches!(endpoint, "/health" | "/meta" | "/dataset" | "/observations" | "/predict/indicators" | "/predict/dosing" | "/predict/sediments" | "/retrain"
+            | "/api/workspace" | "/api/months" | "/api/stats/summary" | "/api/stats/by-indicator" | "/api/stats/by-month" | "/api/reports/exceedances" | "/api/exchange/import" | "/api/exchange/export")
+        || (endpoint.starts_with("/observations/") && endpoint[14..].chars().all(|c| c.is_ascii_digit() || c == '-')));
     if !allowed { return Err("Неизвестная операция".into()); }
     let url = format!("{}{}", state.url, path);
-    let request = match body {
-        Some(value) => state.client.post(url).json(&value),
-        None => state.client.get(url),
-    };
+    let verb = method.unwrap_or_else(|| if body.is_some() { "POST".into() } else { "GET".into() });
+    if !matches!(verb.as_str(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE") { return Err("Неизвестный HTTP-метод".into()); }
+    if !catalog && !(month_form && verb == "PATCH") && !matches!(verb.as_str(), "GET" | "POST") { return Err("Метод недоступен для этой операции".into()); }
+    let verb = reqwest::Method::from_bytes(verb.as_bytes()).map_err(|e| e.to_string())?;
+    let mut request = state.client.request(verb, url);
+    if let Some(value) = body { request = request.json(&value); }
     let response = request.bearer_auth(&state.token).send().await.map_err(|e| format!("Сервис ещё запускается или недоступен: {e}"))?;
     let status = response.status();
+    if status.as_u16() == 204 { return Ok(Value::Null); }
     let value: Value = response.json().await.map_err(|e| format!("Некорректный ответ сервиса: {e}"))?;
     if !status.is_success() {
         return Err(value.get("detail").map(|v| v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string())).unwrap_or_else(|| status.to_string()));

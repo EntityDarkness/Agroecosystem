@@ -3,10 +3,32 @@ from __future__ import annotations
 import math
 import os
 import secrets
+import logging
+from contextlib import asynccontextmanager
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from pydantic import ValidationError
+
+from service.database import init_database
+from service.errors import BusinessError
+from service.catalog_router import router as catalog_router
+from service.exchange import router as exchange_router
+from service.workspace import router as workspace_router, workspace_catalog, label_model_result
+from service.catalog_router import DB
+
+
+@asynccontextmanager
+async def lifespan(app):
+    init_database()
+    try:
+        yield
+    finally:
+        from service.database import engine
+        engine.dispose()
 
 from service.config import INDICATORS, PANEL_PATH
 from service.panel import append_month, load_model_frame, parse_month
@@ -25,17 +47,44 @@ from service.schemas import DataIn, DosingIn, PredictIn, RetrainIn
 from service.train import retrain
 
 app = FastAPI(
+    lifespan=lifespan,
     title="Golden Meadows WTP",
     version="1.0.0",
     description="Прогноз КТ5, дозировки препарата и донных отложений.",
 )
+app.include_router(catalog_router)
+app.include_router(exchange_router)
+app.include_router(workspace_router)
+
+
+@app.exception_handler(BusinessError)
+async def business_error(request, exc):
+    return JSONResponse(status_code=exc.status, content={"detail": exc.detail, "error_code": exc.code})
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_error(request, exc):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail, "error_code": f"HTTP_{exc.status_code}"})
+
+
+@app.exception_handler(RequestValidationError)
+@app.exception_handler(ValidationError)
+async def validation_error(request, exc):
+    errors = [{"loc": list(e["loc"]), "msg": e["msg"], "type": e["type"]} for e in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": "Проверьте параметры запроса", "error_code": "VALIDATION_ERROR", "errors": errors})
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request, exc):
+    logging.getLogger(__name__).exception("Request failed", exc_info=exc)
+    return JSONResponse(status_code=500, content={"detail": "Внутренняя ошибка сервиса", "error_code": "INTERNAL_ERROR"})
 
 
 @app.middleware("http")
 async def local_auth(request: Request, call_next):
     token = os.environ.get("WTP_API_TOKEN")
     if token and not secrets.compare_digest(request.headers.get("authorization", ""), f"Bearer {token}"):
-        return JSONResponse(status_code=401, content={"detail": "Нет доступа к локальному сервису"})
+        return JSONResponse(status_code=401, content={"detail": "Нет доступа к локальному сервису", "error_code": "UNAUTHORIZED"})
     return await call_next(request)
 
 # WebView Tauri (tauri.localhost / tauri://) ходит на 127.0.0.1 — это другой origin.
@@ -56,22 +105,26 @@ def _http(exc: Exception, status: int) -> HTTPException:
 
 @app.get("/health")
 def health():
+    from service.database import engine
     return {
         "status": "ok",
         "indicators": list(registry.indicators),
         "sediments": len(registry.sediments),
-        "panel": str(PANEL_PATH),
+        "panel": str(engine.url.database),
+        "storage": "sqlite",
     }
 
 
 @app.get("/meta")
-def meta():
+def meta(db: DB):
+    catalog = workspace_catalog(db)
+    names = {spec["code"]: spec["name"] for spec in catalog["indicators"]}
     return {
-        "input_fields": input_fields(),
+        "input_fields": catalog["ml_fields"],
         "indicators": [
             {
                 "key": key,
-                "title": spec["title"],
+                "title": names.get(spec["column"], spec["title"]),
                 "column": spec["column"],
                 "unit": spec["unit"],
                 "norm": spec["norm"],
@@ -136,10 +189,10 @@ def save_observation(body: DataIn):
 
 
 @app.post("/predict/indicators")
-def indicators(body: PredictIn = Body(default_factory=PredictIn)):
+def indicators(db: DB, body: PredictIn = Body(default_factory=PredictIn)):
     try:
         with registry.lock:
-            return predict_indicators(registry, body)
+            return label_model_result(db, predict_indicators(registry, body))
     except KeyError as exc:
         raise _http(exc, 404) from exc
     except ValueError as exc:
@@ -147,12 +200,13 @@ def indicators(body: PredictIn = Body(default_factory=PredictIn)):
 
 
 @app.post("/predict/indicators/{indicator}")
-def indicator(indicator: str, body: PredictIn = Body(default_factory=PredictIn)):
+def indicator(indicator: str, db: DB, body: PredictIn = Body(default_factory=PredictIn)):
     try:
         key = resolve_indicator_key(indicator)
         with registry.lock:
             ctx = prepare(registry, body)
             item = predict_one(registry, key, ctx["row"], float(body.dosing_multiplier))
+            label_model_result(db, {"indicator": item})
         item["current"] = _raw_value(ctx["frame"], ctx["as_of"], INDICATORS[key]["column"])
         return {
             "as_of": ctx["as_of"].date().isoformat(),
@@ -179,10 +233,10 @@ def dosing(body: DosingIn = Body(default_factory=DosingIn)):
 
 
 @app.post("/predict/sediments")
-def sediments(body: PredictIn = Body(default_factory=PredictIn)):
+def sediments(db: DB, body: PredictIn = Body(default_factory=PredictIn)):
     try:
         with registry.lock:
-            return predict_sediments(registry, body)
+            return label_model_result(db, predict_sediments(registry, body))
     except KeyError as exc:
         raise _http(exc, 404) from exc
     except ValueError as exc:

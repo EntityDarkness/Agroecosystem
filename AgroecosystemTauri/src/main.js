@@ -1,8 +1,14 @@
 import { request, esc, fmt, monthName, csv, exportFile } from "./api.js";
 import { chart } from "./charts.js";
 import landscapeUrl from "./assets/landscape.jpg";
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
+import { Catalog } from "./catalog.jsx";
+import { EntryPage, ReportsPage } from "./workspace.jsx";
 
 const app = document.querySelector("#app");
+const reactRoot = createRoot(app);
 const now = new Date();
 const todayMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 function lastDraftMonth() {
@@ -28,14 +34,14 @@ const state = {
   starting: false,
   error: "",
   meta: null,
+  workspace: { points: [], indicators: [], ml_fields: [], ml_total: 49 },
+  months: [],
+  revision: 0,
+  catalogOptions: {},
+  entryMedium: "",
   dataset: { months: [], history: [] },
   health: null,
   draftMonth: lastDraftMonth(),
-  values: {},
-  group: null,
-  dirty: false,
-  existing: false,
-  reading: false,
   module: "indicators",
   forecastMonth: "",
   scenario: scenarioDefaults(),
@@ -44,22 +50,8 @@ const state = {
   calcError: "",
   graph: "BOD",
   showTable: false,
-  reportMonth: "",
-  reportKey: "BOD",
-  reportView: "points",
-  reportValues: {},
-  reportLoading: false,
-  reportError: "",
   expanded: false,
 };
-const groups = [
-  ...Array.from({ length: 5 }, (_, i) => ({
-    key: `КТ${i + 1}`,
-    title: `Контрольная точка ${i + 1}`,
-  })),
-  { key: "sediments", title: "Донные отложения" },
-  { key: "operation", title: "Объёмы и препарат" },
-];
 const icons = {
   work: '<path d="M5 4h14v16H5zM8 8h8M8 12h5M8 16h3"/>',
   reports: '<path d="M4 4h16v16H4zM8 16v-4m4 4V8m4 8v-6"/>',
@@ -76,17 +68,6 @@ const fieldsFor = (key) =>
       ? f.group === "water" && f.key.endsWith(`_${key}`)
       : f.group === key,
   );
-const valid = (f, v) =>
-  typeof v === "number" &&
-  Number.isFinite(v) &&
-  v >= f.min &&
-  v <= (f.max ?? Infinity);
-const completed = () =>
-  fields().filter((f) => valid(f, state.values[f.key])).length;
-const groupComplete = (key) =>
-  fieldsFor(key).length > 0 &&
-  fieldsFor(key).every((f) => valid(f, state.values[f.key]));
-const draftKey = (month) => `agro.draft.v1.${month}`;
 const label = (f) =>
   f.group === "water"
     ? f.title.replace(/ КТ\d$/, "")
@@ -98,18 +79,6 @@ function toast(message) {
   el.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (el.hidden = true), 6500);
-}
-function persist() {
-  try {
-    localStorage.setItem(
-      draftKey(state.draftMonth),
-      JSON.stringify({ values: state.values, dirty: state.dirty }),
-    );
-  } catch {
-    toast(
-      "Не удалось сохранить черновик на устройстве. Не закрывайте приложение до записи замеров.",
-    );
-  }
 }
 async function confirmAction(title, text) {
   const d = document.querySelector("#confirmation");
@@ -169,9 +138,6 @@ function connection() {
       ? '<div class="loading" role="status"><i class="spinner"></i>Подготавливаем модели и данные. Первый запуск может занять несколько минут.</div>'
       : "";
 }
-function inputAside() {
-  return `<h1>Добавить показатели</h1><label class="field"><span>Расчётный месяц</span><input type="month" id="draft-month" value="${state.draftMonth}" required ${state.busy ? "disabled" : ""}/></label><p class="small muted">Выберите контрольную точку для работы. Модели используют месячные значения.</p><div class="stack">${groups.map((g) => `<div class="point-row ${g.key === "sediments" ? "extra" : ""}"><button data-group="${g.key}" class="${state.group === g.key ? "selected" : ""}" ${!state.ready || state.reading || state.busy ? "disabled" : ""}>${g.title}</button><span class="point-state ${groupComplete(g.key) ? "done" : ""}" data-point-state="${g.key}" title="Готовность полей к записи">${groupComplete(g.key) ? "✓" : "·"}</span></div>`).join("")}</div><div><div class="counter"><span>Обязательные поля</span><span id="field-count">${completed()} / ${fields().length || 49}</span></div><div class="progress"><i id="field-progress" style="width:${(completed() / 49) * 100}%"></i></div></div><button class="primary" data-action="save-all" ${completed() !== 49 || state.busy || state.reading || !state.ready ? "disabled" : ""}>${state.busy ? "Записываем…" : "Записать все замеры"}</button><button data-action="report-current" ${!state.existing || state.dirty || state.busy ? "disabled" : ""}>Посмотреть общий отчёт</button><p class="small muted">Все 49 полей обязательны. Черновик сохраняется на этом устройстве; в историю попадёт после записи всех замеров.</p>`;
-}
 function forecastAside() {
   const names = {
     indicators: "Прогноз основных ЗВ",
@@ -189,7 +155,7 @@ function forecastAside() {
     )
     .join(
       "",
-    )}</div><form id="scenario" class="stack"><label class="field"><span>Базовый месяц</span><select id="forecast-month" name="month" ${state.busy ? "disabled" : ""}>${monthOptions(state.forecastMonth, true)}</select></label><p class="small muted">Прогноз на следующий месяц относительно базового. Пустые поля показателей сохраняют исторические значения.</p><div class="form-grid"><label class="field"><span>Объём стоков, ×</span><input name="volume_multiplier" type="number" min="0.001" step="any" value="${esc(state.scenario.volume_multiplier)}" required ${state.busy ? "disabled" : ""}/></label><label class="field"><span>Осадки, ×</span><input name="precip_multiplier" type="number" min="0.001" step="any" value="${esc(state.scenario.precip_multiplier)}" required ${state.busy ? "disabled" : ""}/></label><label class="field"><span>Температура, Δ °C</span><input name="temp_delta" type="number" step="any" value="${esc(state.scenario.temp_delta)}" required ${state.busy ? "disabled" : ""}/></label>${state.module === "indicators" ? '<label class="field"><span>Дозировка, ×</span><input name="dosing_multiplier" type="number" min="0.001" step="any" value="1" required/></label>' : ""}</div>${state.module === "dosing" ? '<div class="form-grid"><label class="field"><span>Цель БПК5, мг/дм³</span><input name="target_bod" type="number" min="0.001" step="any" value="3" required/></label><label class="field"><span>Цель ХПК, мгО/дм³</span><input name="target_cod" type="number" min="0.001" step="any" value="30" required/></label></div>' : ""}<details><summary>Изменить входные показатели КТ5</summary><div class="form-grid">${fieldsFor(
+    )}</div><form id="scenario" class="stack"><label class="field"><span>Базовый месяц</span><select id="forecast-month" name="month" ${state.busy ? "disabled" : ""}>${monthOptions(state.forecastMonth, true)}</select></label><p class="small muted">Прогноз на следующий месяц относительно базового. Пустые поля показателей сохраняют исторические значения.</p><div class="form-grid"><label class="field"><span>Объём стоков, ×</span><input name="volume_multiplier" type="number" min="0.001" step="any" value="${esc(state.scenario.volume_multiplier)}" required ${state.busy ? "disabled" : ""}/></label><label class="field"><span>Осадки, ×</span><input name="precip_multiplier" type="number" min="0.001" step="any" value="${esc(state.scenario.precip_multiplier)}" required ${state.busy ? "disabled" : ""}/></label><label class="field"><span>Температура, Δ °C</span><input name="temp_delta" type="number" step="any" value="${esc(state.scenario.temp_delta)}" required ${state.busy ? "disabled" : ""}/></label>${state.module === "indicators" ? '<label class="field"><span>Дозировка, ×</span><input name="dosing_multiplier" type="number" min="0.001" step="any" value="1" required/></label>' : ""}</div>${state.module === "dosing" ? '<div class="form-grid"><label class="field"><span>Цель БПК5, мг/дм³</span><input name="target_bod" type="number" min="0.001" step="any" value="3" required/></label><label class="field"><span>Цель ХПК, мгО/дм³</span><input name="target_cod" type="number" min="0.001" step="any" value="30" required/></label></div>' : ""}<details><summary>Входные показатели выходной точки</summary><div class="form-grid">${fieldsFor(
     "КТ5",
   )
     .map((f) => numericField(f, state.scenario.overrides[f.key], "override"))
@@ -198,7 +164,7 @@ function forecastAside() {
     )}</div></details><button class="primary" type="submit" ${!state.ready || state.busy ? "disabled" : ""}>${state.busy ? "Рассчитываем…" : state.module === "dosing" ? "Рассчитать дозировку" : "Рассчитать прогноз"}</button><button type="button" data-action="reset-scenario" ${state.busy ? "disabled" : ""}>Сбросить значения</button></form>`;
 }
 function aside() {
-  let content = "";
+  let content;
   if (state.page === "home")
     content = `<h1>С чего начнём?</h1><div class="stack home-actions">${[
       ["input", "Добавить свежие показатели"],
@@ -211,32 +177,17 @@ function aside() {
           `<button data-page="${page}" ${!state.ready ? "disabled" : ""}>${text}</button>`,
       )
       .join("")}</div>`;
-  else if (state.page === "input") content = inputAside();
   else if (state.page === "forecast") content = forecastAside();
-  else if (state.page === "reports")
-    content = `<h1>Отчёты</h1><p class="muted">Сравнивайте измерения контрольных точек и смотрите историю показателей.</p><label class="field"><span>Месяц измерений</span><select id="report-month" ${!state.ready ? "disabled" : ""}>${monthOptions(state.reportMonth)}</select></label><label class="field"><span>Загрязняющее вещество</span><select id="report-key">${(state.meta?.indicators ?? []).map((i) => `<option value="${i.key}" ${state.reportKey === i.key ? "selected" : ""}>${esc(i.title)}</option>`).join("")}</select></label><div class="stack"><button data-report-view="points" class="${state.reportView === "points" ? "primary" : ""}">Контрольные точки</button><button data-report-view="history" class="${state.reportView === "history" ? "primary" : ""}">История КТ5</button><button data-action="export-history" ${!state.ready ? "disabled" : ""}>Скачать историю CSV</button></div>`;
   else if (state.page === "data")
-    content = `<h1>Данные</h1><p class="muted">История измерений и перенос замеров между рабочими местами.</p><div class="stack"><button data-page="input">Добавить показатели</button><button data-action="import" ${!state.ready ? "disabled" : ""}>Импортировать замеры JSON</button><button data-action="export-draft" ${!state.ready ? "disabled" : ""}>Скачать текущий черновик</button><button data-action="export-history" ${!state.ready ? "disabled" : ""}>Скачать историю CSV</button></div><input type="file" id="import-file" accept="application/json,.json" hidden/><p class="small muted">Импорт заполняет черновик. Проверьте все поля и запишите замеры на экране ввода.</p>`;
+    content = `<h1>Данные и справочники</h1><p class="muted">Изменения справочников используются в основных формах ввода, истории и отчётах.</p><div class="stack"><button data-page="input">Ввести измерения</button><button data-page="reports">Открыть отчёты</button></div><p class="small muted">Коды и пороги закреплённых признаков ML защищены. Дополнительные показатели не расширяют модель автоматически.</p>`;
   else
     content =
       '<h1>Настройки</h1><p class="muted">Состояние приложения и моделей.</p><button data-action="retry">Проверить подключение</button><button data-page="home">Вернуться к работе</button>';
   return `<aside class="aside">${content}${status()}</aside>`;
 }
-function inputMain() {
-  const g = groups.find((g) => g.key === state.group);
-  if (state.reading)
-    return '<div class="loading"><i class="spinner"></i>Загружаем замеры выбранного месяца…</div>';
-  if (!g)
-    return welcome(
-      "Выберите контрольную точку. Затем заполните донные отложения, объёмы стоков и расход препарата.",
-    );
-  return `<h2>${esc(monthName(state.draftMonth))}</h2><h3>${g.title}</h3><p class="notice">Введите значения за выбранный месяц. Поля со звёздочкой обязательны для новых моделей. ${state.existing ? "В этом месяце уже есть измерения; перед записью приложение попросит подтвердить обновление." : ""}</p><form id="measurements"><div class="form-grid">${fieldsFor(
-    g.key,
-  )
-    .map((f) => numericField(f, state.values[f.key]))
-    .join(
-      "",
-    )}</div><div class="actions"><button class="primary" type="submit" ${state.busy ? "disabled" : ""}>Сохранить черновик раздела</button><button type="button" data-action="clear-group" ${state.busy ? "disabled" : ""}>Очистить значения</button></div><p class="small muted">После заполнения всех разделов нажмите «Записать все замеры».</p></form>`;
+function mlOutlet() {
+  const pointId = fields().find((f) => f.key.endsWith("_КТ5"))?.point_id;
+  return state.workspace.points.find((p) => p.id === pointId)?.name ?? "КТ5";
 }
 function predictionChart(result) {
   const item =
@@ -279,7 +230,7 @@ function forecastMain() {
     : "";
   if (!r)
     return `<h2>${names[state.module]}</h2>${error}${welcome("Выберите базовый месяц и параметры сценария. Результат появится после расчёта.")}`;
-  const header = `<h2>${esc(monthName(r.forecast_month))}</h2><p class="small muted">База: ${esc(monthName(r.as_of))} · КТ5 · Прогноз на один месяц</p>${error}<details class="small"><summary>Параметры выполненного расчёта</summary><p>Объём: ×${fmt(entry.body.volume_multiplier)} · Осадки: ×${fmt(entry.body.precip_multiplier)} · Температура: ${fmt(entry.body.temp_delta)} °C${entry.body.dosing_multiplier ? ` · Доза: ×${fmt(entry.body.dosing_multiplier)}` : ""}</p></details>`;
+  const header = `<h2>${esc(monthName(r.forecast_month))}</h2><p class="small muted">База: ${esc(monthName(r.as_of))} · ${esc(mlOutlet())} · Прогноз на один месяц</p>${error}<details class="small"><summary>Параметры выполненного расчёта</summary><p>Объём: ×${fmt(entry.body.volume_multiplier)} · Осадки: ×${fmt(entry.body.precip_multiplier)} · Температура: ${fmt(entry.body.temp_delta)} °C${entry.body.dosing_multiplier ? ` · Доза: ×${fmt(entry.body.dosing_multiplier)}` : ""}</p></details>`;
   if (state.module === "indicators")
     return (
       header +
@@ -365,75 +316,84 @@ const forecastActions = (toggle = true) =>
 function table(headers, rows) {
   return `<div class="table-wrap"><table><thead><tr>${headers.map((h) => `<th scope="col">${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((v, i) => `<td ${i === 0 ? 'class="wrap"' : ""}>${esc(v)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
-function reportsMain() {
-  const spec = state.meta?.indicators.find((i) => i.key === state.reportKey);
-  if (!spec) return welcome();
-  if (state.reportLoading)
-    return '<div class="loading"><i class="spinner"></i>Загружаем измерения…</div>';
-  if (state.reportError)
-    return `<div class="banner error">${esc(state.reportError)}</div>`;
-  const history = state.dataset.history.filter(
-    (p) => p[state.reportKey] != null,
-  );
-  const points = Array.from({ length: 5 }, (_, i) => ({
-    x: `КТ${i + 1}`,
-    y: state.reportValues[spec.column.replace(/КТ5$/, `КТ${i + 1}`)],
-  }));
-  return `<h2>${state.reportView === "points" ? esc(monthName(state.reportMonth)) : "История измерений КТ5"}</h2><h3>${esc(spec.title)} <span class="muted small">${esc(spec.unit)}</span></h3><div class="chart-box">${chart([{ name: spec.title, color: "#eeb66e", points: state.reportView === "points" ? points : history.slice(-24).map((p) => ({ x: p.month, y: p[state.reportKey] })) }], { unit: spec.unit, xlabel: state.reportView === "points" ? "Контрольная точка" : "Месяц" })}</div>${
-    state.reportView === "points"
-      ? table(
-          ["Контрольная точка", "Измеренное значение", "Единица"],
-          points.map((p) => [p.x, fmt(p.y), spec.unit]),
-        )
-      : table(
-          ["Месяц", "КТ5", "Единица"],
-          history.map((p) => [
-            monthName(p.month),
-            fmt(p[state.reportKey]),
-            spec.unit,
-          ]),
-        )
-  }<p class="small muted">«—» означает отсутствие измерения. Исторические значения показаны без заполнения пропусков.</p>`;
-}
-function dataMain() {
-  return `<h2>История измерений</h2><p class="notice">Измеренные значения на выходе системы, КТ5. Для работы со всеми 49 полями выберите месяц и откройте ввод показателей.</p><div class="summary"><span>Месяцев с измерениями: ${state.dataset.months.length}</span><span>Показателей воды: ${state.meta?.indicators.length ?? 0}</span><span>Обязательных полей: ${fields().length}</span></div>${table(
-    ["Месяц", ...(state.meta?.indicators ?? []).map((i) => i.title)],
-    state.dataset.history
-      .toReversed()
-      .map((p) => [
-        monthName(p.month),
-        ...(state.meta?.indicators ?? []).map((i) => fmt(p[i.key])),
-      ]),
-  )}`;
-}
 function settingsMain() {
-  return `<h2>Приложение и модели</h2><dl class="info-list"><dt>Версия клиента</dt><dd>1.0.0 · Windows x64</dd><dt>Локальный сервис</dt><dd>${state.ready ? "Доступен" : "Недоступен"}</dd><dt>Модели воды</dt><dd>${esc(state.health?.indicators.join(", ") ?? "—")}</dd><dt>Модели отложений</dt><dd>${state.health?.sediments ?? "—"}</dd><dt>Обязательные поля</dt><dd>${fields().length} · 40 показателей воды, 7 показателей отложений, объём стоков и препарат</dd><dt>Данные</dt><dd>${esc(state.health?.panel ?? "—")}</dd><dt>Горизонт прогноза</dt><dd>Один месяц относительно базового</dd></dl><div class="banner">Приложение работает локально. Для расчётов подключение к интернету не требуется. Пользовательские замеры сохраняются в каталоге данных приложения.</div><h3>Перенос данных</h3><p class="notice">В разделе «Данные» можно импортировать и экспортировать замеры в JSON и скачать историю в CSV. CSV открывается в Excel; файлы настольного клиента сохраняются в «Загрузки → Агроэкосистема».</p>`;
+  return `<h2>Приложение и модели</h2><dl class="info-list"><dt>Версия клиента</dt><dd>1.0.0 · Windows x64</dd><dt>Локальный сервис</dt><dd>${state.ready ? "Доступен" : "Недоступен"}</dd><dt>Модели воды</dt><dd>${esc(state.health?.indicators.join(", ") ?? "—")}</dd><dt>Модели отложений</dt><dd>${state.health?.sediments ?? "—"}</dd><dt>Обязательные поля</dt><dd>${fields().length} · 40 показателей воды, 7 показателей отложений, объём стоков и препарат</dd><dt>Данные</dt><dd>${esc(state.health?.panel ?? "—")}</dd><dt>Горизонт прогноза</dt><dd>Один месяц относительно базового</dd></dl><div class="banner">Приложение работает локально. Для расчётов подключение к интернету не требуется. Пользовательские замеры сохраняются в каталоге данных приложения.</div><h3>Перенос данных</h3><p class="notice">Форма ввода поддерживает черновики JSON. В «Данных» и «Отчётах» доступен CSV; справочники используются во всех основных формах. CSV открывается в Excel; файлы настольного клиента сохраняются в «Загрузки → Агроэкосистема».</p>`;
 }
 function render() {
   document.body.classList.toggle("rail-expanded", state.expanded);
-  const captions = {
-    home: "Начало работы",
-    input: state.group
-      ? groups.find((g) => g.key === state.group)?.title
-      : "Выбор контрольной точки",
-    forecast: "Прогноз и расчёт сценария",
-    reports: "Общий отчёт",
-    data: "Архив измерений",
-    settings: "Настройки",
+  const html = (content, key) =>
+    React.createElement("div", {
+      key,
+      style: { display: "contents" },
+      dangerouslySetInnerHTML: { __html: content },
+    });
+  const common = {
+    workspace: state.workspace,
+    revision: state.revision,
+    onChanged: refreshApplication,
+    onNavigate: navigate,
+    statusHtml: status(),
   };
-  const main =
-    state.page === "home"
-      ? welcome()
-      : state.page === "input"
-        ? inputMain()
+  let content;
+  if (state.ready && state.page === "input")
+    content = React.createElement(EntryPage, {
+      ...common,
+      initialMonth: state.draftMonth,
+      initialMedium: state.entryMedium,
+      confirmAction,
+      onMonthChange: (month) => {
+        state.draftMonth = month;
+        try {
+          localStorage.setItem("agro.lastMonth", month);
+        } catch {}
+      },
+    });
+  else if (state.ready && state.page === "reports")
+    content = React.createElement(ReportsPage, {
+      ...common,
+      months: state.months,
+      initialMonth: state.draftMonth,
+    });
+  else {
+    const main =
+      state.page === "home"
+        ? welcome()
         : state.page === "forecast"
           ? forecastMain()
-          : state.page === "reports"
-            ? reportsMain()
-            : state.page === "data"
-              ? dataMain()
-              : settingsMain();
-  app.innerHTML = `<div class="app-shell">${rail()}${aside()}<main class="main"><p class="caption">${captions[state.page]}</p>${connection()}${main}</main></div>`;
+          : state.page === "data" && state.ready
+            ? React.createElement(Catalog, {
+                ...common,
+                initialEntity: state.catalogOptions.entity,
+                initialPointId: state.catalogOptions.pointId,
+              })
+            : state.page === "settings"
+              ? settingsMain()
+              : welcome();
+    content = React.createElement(
+      React.Fragment,
+      null,
+      html(aside(), "aside"),
+      React.createElement(
+        "main",
+        { className: "main" },
+        html(
+          `<p class="caption">${state.page === "forecast" ? "Прогноз и расчёт сценария" : "Агроэкосистема"}</p>${connection()}`,
+          "status",
+        ),
+        typeof main === "string" ? html(main, "legacy-view") : main,
+      ),
+    );
+  }
+  flushSync(() =>
+    reactRoot.render(
+      React.createElement(
+        "div",
+        { className: "app-shell" },
+        html(rail(), "navigation"),
+        content,
+      ),
+    ),
+  );
   document
     .querySelector("#scenario")
     ?.querySelectorAll("input[name]")
@@ -446,116 +406,43 @@ function render() {
       .querySelectorAll("input,select,button")
       .forEach((el) => (el.disabled = true));
 }
-
-async function loadDraft(month) {
-  state.draftMonth = month;
-  try {
-    localStorage.setItem("agro.lastMonth", month);
-  } catch {}
-  state.reading = true;
-  state.values = {};
-  state.dirty = false;
-  state.existing = false;
+async function readApplication() {
+  [state.meta, state.dataset, state.workspace, { months: state.months }] =
+    await Promise.all([
+      request("/meta"),
+      request("/dataset"),
+      request("/api/workspace"),
+      request("/api/months"),
+    ]);
+}
+async function refreshApplication() {
+  state.results = {};
+  state.showTable = false;
+  await readApplication();
+  state.revision++;
+  if (
+    state.forecastMonth &&
+    !state.dataset.months.includes(state.forecastMonth)
+  )
+    state.forecastMonth = "";
   render();
-  try {
-    let saved;
+}
+async function navigate(page, options = {}) {
+  state.entryMedium = page === "operation" ? "operation" : "";
+  if (page === "operation") page = "input";
+  if (state.ready && ["input", "reports", "data", "forecast"].includes(page)) {
     try {
-      saved = JSON.parse(localStorage.getItem(draftKey(month)) ?? "null");
-    } catch {}
-    const result = await request(`/observations/${month}`);
-    if (state.draftMonth !== month) return;
-    state.existing = Object.values(result.values).some((v) => v != null);
-    state.values = saved?.dirty ? saved.values : result.values;
-    state.dirty = Boolean(saved?.dirty);
-    for (const key of Object.keys(state.values))
-      if (!fields().some((f) => f.key === key)) delete state.values[key];
-  } catch (e) {
-    if (state.draftMonth === month)
-      toast(`Не удалось загрузить замеры: ${e.message ?? e}`);
-  } finally {
-    if (state.draftMonth === month) {
-      state.reading = false;
-      render();
+      await readApplication();
+    } catch (e) {
+      toast(`Не удалось обновить справочники: ${e.message}`);
+      return;
     }
-  }
-}
-async function loadReport() {
-  const month = state.reportMonth;
-  if (!month || !state.ready) return;
-  state.reportLoading = true;
-  state.reportError = "";
-  render();
-  try {
-    const data = await request(`/observations/${month}`);
-    if (state.reportMonth === month) state.reportValues = data.values;
-  } catch (e) {
-    if (state.reportMonth === month) state.reportError = String(e.message ?? e);
-  } finally {
-    if (state.reportMonth === month) {
-      state.reportLoading = false;
-      render();
-    }
-  }
-}
-async function navigate(page) {
-  if (page === "operation") {
-    state.group = "operation";
-    page = "input";
   }
   state.page = page;
+  state.catalogOptions = options;
   state.calcError = "";
   state.showTable = false;
   render();
-  if (page === "input" && state.ready) await loadDraft(state.draftMonth);
-  if (page === "reports" && state.ready) {
-    state.reportMonth = state.reportMonth || state.dataset.months.at(-1) || "";
-    await loadReport();
-  }
-}
-function updateProgress() {
-  const count = completed();
-  const c = document.querySelector("#field-count");
-  if (c) c.textContent = `${count} / 49`;
-  const p = document.querySelector("#field-progress");
-  if (p) p.style.width = `${(count / 49) * 100}%`;
-  const save = document.querySelector('[data-action="save-all"]');
-  if (save) save.disabled = count !== 49 || state.busy || state.reading;
-  document.querySelectorAll("[data-point-state]").forEach((el) => {
-    const done = groupComplete(el.dataset.pointState);
-    el.textContent = done ? "✓" : "·";
-    el.classList.toggle("done", done);
-  });
-}
-async function saveAll() {
-  if (state.busy || completed() !== 49) return;
-  if (
-    state.existing &&
-    !(await confirmAction(
-      "Обновить измерения?",
-      `За ${monthName(state.draftMonth)} уже есть замеры. Заполненные 49 полей заменят значения этого месяца. Остальная история сохранится.`,
-    ))
-  )
-    return;
-  state.busy = true;
-  render();
-  try {
-    await request("/observations", {
-      month: state.draftMonth,
-      values: state.values,
-    });
-    state.dirty = false;
-    state.existing = true;
-    persist();
-    state.dataset = await request("/dataset");
-    toast(
-      "Все 49 полей записаны в историю. Месяц доступен для расчёта прогноза.",
-    );
-  } catch (e) {
-    toast(`Не удалось записать замеры: ${e.message ?? e}`);
-  } finally {
-    state.busy = false;
-    render();
-  }
 }
 async function calculate(form) {
   if (state.busy || !state.ready || !form.reportValidity()) return;
@@ -599,20 +486,6 @@ async function saveExport(contents, format = "csv") {
   } catch (e) {
     toast(`Не удалось сохранить файл: ${e.message ?? e}`);
   }
-}
-function exportHistory() {
-  return saveExport(
-    csv([
-      [
-        "Месяц",
-        ...(state.meta?.indicators ?? []).map((i) => `${i.title}, ${i.unit}`),
-      ],
-      ...state.dataset.history.map((p) => [
-        p.month,
-        ...state.meta.indicators.map((i) => p[i.key]),
-      ]),
-    ]),
-  );
 }
 function exportPrediction() {
   const entry = state.results[state.module];
@@ -672,138 +545,49 @@ function exportPrediction() {
 }
 
 app.addEventListener("input", (e) => {
+  if (e.target.closest("[data-workspace]")) return;
   const el = e.target;
-  if (el.form?.id === "scenario") {
-    const value = el.value === "" ? "" : el.valueAsNumber;
-    if (el.dataset.override) {
-      if (value === "") delete state.scenario.overrides[el.dataset.override];
-      else state.scenario.overrides[el.dataset.override] = value;
-    } else if (Object.hasOwn(state.scenario, el.name))
-      state.scenario[el.name] = value;
-  }
+  if (el.form?.id !== "scenario") return;
+  const value = el.value === "" ? "" : el.valueAsNumber;
+  if (el.dataset.override) {
+    if (value === "") delete state.scenario.overrides[el.dataset.override];
+    else state.scenario.overrides[el.dataset.override] = value;
+  } else if (Object.hasOwn(state.scenario, el.name))
+    state.scenario[el.name] = value;
 });
-app.addEventListener("input", (e) => {
+app.addEventListener("change", (e) => {
+  if (e.target.closest("[data-workspace]")) return;
   const el = e.target;
-  if (el.matches("[data-draft]")) {
-    const key = el.dataset.draft;
-    if (el.value === "") delete state.values[key];
-    else state.values[key] = el.valueAsNumber;
-    state.dirty = true;
-    persist();
-    updateProgress();
-  }
-});
-app.addEventListener("change", async (e) => {
-  const el = e.target;
-  if (el.id === "draft-month") {
-    if (el.value) await loadDraft(el.value);
-    else {
-      el.value = state.draftMonth;
-      toast("Укажите расчётный месяц.");
-    }
-  } else if (el.id === "forecast-month") state.forecastMonth = el.value;
-  else if (el.id === "all-graph") {
+  if (el.id === "forecast-month") state.forecastMonth = el.value;
+  else if (el.id === "all-graph" || el.name === "graph") {
     state.graph = el.value;
     render();
-  } else if (el.name === "graph") {
-    state.graph = el.value;
-    render();
-  } else if (el.id === "report-key") {
-    state.reportKey = el.value;
-    render();
-  } else if (el.id === "report-month") {
-    state.reportMonth = el.value;
-    await loadReport();
-  } else if (el.id === "import-file" && el.files[0]) {
-    try {
-      const file = el.files[0];
-      if (file.size > 1000000)
-        throw new Error("Размер JSON не должен превышать 1 МБ");
-      const data = JSON.parse(await file.text());
-      if (
-        !/^\d{4}-(0[1-9]|1[0-2])$/.test(data.month) ||
-        !data.values ||
-        Array.isArray(data.values) ||
-        typeof data.values !== "object"
-      )
-        throw new Error("Ожидается JSON с month: YYYY-MM и объектом values");
-      const known = new Map(fields().map((f) => [f.key, f]));
-      for (const [key, value] of Object.entries(data.values)) {
-        if (!known.has(key)) throw new Error(`Неизвестное поле: ${key}`);
-        if (value != null && !valid(known.get(key), value))
-          throw new Error(`Недопустимое значение: ${key}`);
-      }
-      state.page = "input";
-      await loadDraft(data.month);
-      state.values = { ...data.values };
-      state.dirty = true;
-      state.group = "КТ1";
-      persist();
-      render();
-      toast("Импортирован черновик. Проверьте разделы и запишите все замеры.");
-    } catch (err) {
-      toast(`Импорт не выполнен: ${err.message}`);
-    }
   }
 });
-app.addEventListener("submit", async (e) => {
+app.addEventListener("submit", (e) => {
+  if (e.target.closest("[data-workspace]")) return;
   e.preventDefault();
-  if (e.target.id === "scenario") return calculate(e.target);
-  if (e.target.id === "measurements" && e.target.reportValidity()) {
-    persist();
-    toast(
-      "Черновик раздела сохранён на устройстве. Для записи в историю заполните все 49 полей.",
-    );
-  }
+  if (e.target.id === "scenario") calculate(e.target);
 });
 app.addEventListener("click", async (e) => {
-  const b = e.target.closest("button");
-  if (!b || b.disabled) return;
-  if (b.dataset.page) return navigate(b.dataset.page);
-  if (b.dataset.group) {
-    state.group = b.dataset.group;
-    render();
-    return;
-  }
-  if (b.dataset.module) {
-    state.module = b.dataset.module;
+  if (e.target.closest("[data-workspace]")) return;
+  const button = e.target.closest("button");
+  if (!button || button.disabled) return;
+  if (button.dataset.page) return navigate(button.dataset.page);
+  if (button.dataset.module) {
+    state.module = button.dataset.module;
     state.calcError = "";
     state.showTable = false;
     render();
     return;
   }
-  if (b.dataset.reportView) {
-    state.reportView = b.dataset.reportView;
-    render();
-    return;
-  }
-  switch (b.dataset.action) {
+  switch (button.dataset.action) {
     case "menu":
       state.expanded = !state.expanded;
       render();
       break;
     case "retry":
       await bootstrap();
-      break;
-    case "save-all":
-      await saveAll();
-      break;
-    case "report-current":
-      state.reportMonth = state.draftMonth;
-      await navigate("reports");
-      break;
-    case "clear-group":
-      if (
-        await confirmAction(
-          "Очистить раздел?",
-          "Значения будут удалены из текущего черновика. Сохранённая история не изменится.",
-        )
-      ) {
-        fieldsFor(state.group).forEach((f) => delete state.values[f.key]);
-        state.dirty = true;
-        persist();
-        render();
-      }
       break;
     case "reset-scenario":
       state.scenario = scenarioDefaults();
@@ -819,23 +603,6 @@ app.addEventListener("click", async (e) => {
     case "export-prediction":
       await exportPrediction();
       break;
-    case "export-history":
-      await exportHistory();
-      break;
-    case "export-draft":
-      if (!Object.keys(state.values).length) await loadDraft(state.draftMonth);
-      await saveExport(
-        JSON.stringify(
-          { month: state.draftMonth, values: state.values },
-          null,
-          2,
-        ),
-        "json",
-      );
-      break;
-    case "import":
-      document.querySelector("#import-file").click();
-      break;
   }
 });
 
@@ -850,20 +617,14 @@ async function bootstrap() {
   while (Date.now() < deadline) {
     try {
       state.health = await request("/health", undefined, 5000);
-      [state.meta, state.dataset] = await Promise.all([
-        request("/meta"),
-        request("/dataset"),
-      ]);
+      await readApplication();
       if (fields().length !== 49 || state.health.indicators.length !== 8)
         throw new Error(
           "Версия локального сервиса не соответствует схеме клиента: ожидаются 49 полей и 8 моделей воды.",
         );
       state.ready = true;
       state.starting = false;
-      state.reportMonth = state.dataset.months.at(-1) || "";
       render();
-      if (state.page === "input") await loadDraft(state.draftMonth);
-      if (state.page === "reports") await loadReport();
       return;
     } catch (e) {
       lastError = e;

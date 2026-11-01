@@ -1,7 +1,11 @@
 .venv/
 .tools/
 artifacts/
+Практические/
 __pycache__/
+*.sqlite3
+*.sqlite3-*
+.env
 *.pyc
 AgroecosystemTauri/src-tauri/target/
 AgroecosystemTauri/src-tauri/binaries/*.exe

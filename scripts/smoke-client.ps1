@@ -16,7 +16,7 @@ try {
             $logStream = [IO.FileStream]::new($logPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
             $logReader = [IO.StreamReader]::new($logStream)
             try { $logText = $logReader.ReadToEnd() } finally { $logReader.Dispose() }
-            if ($logText -match 'GET /meta HTTP/1.1" 200' -and $logText -match 'GET /dataset HTTP/1.1" 200') { $started = $true; break }
+            if ($logText -match 'GET /meta HTTP/1.1" 200' -and $logText -match 'GET /dataset HTTP/1.1" 200' -and $logText -match 'GET /api/workspace HTTP/1.1" 200' -and $logText -match 'GET /api/months HTTP/1.1" 200') { $started = $true; break }
         }
         Start-Sleep -Milliseconds 500
     }
@@ -27,7 +27,7 @@ try {
     $after = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $servicePath }).Count
     if ($before -ne $after) { throw 'Second instance started another sidecar' }
     if (-not (Test-Path -LiteralPath (Join-Path $dataPath '.bundled-models.sha256'))) { throw 'Bundled model revision was not recorded' }
-    Write-Output 'Native client: frontend IPC, health/meta/dataset, model initialization and single-instance checks OK'
+    Write-Output 'Native client: frontend IPC, workspace/months/meta/dataset, models and single-instance checks OK'
     Write-Output ('Data: ' + $dataPath)
 } finally {
     $clientProcess.Refresh()

@@ -15,5 +15,9 @@
     "@tauri-apps/cli": "^2.8.0",
     "prettier": "3.9.10",
     "vite": "^6.4.0"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   }
 }
