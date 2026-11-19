@@ -7,6 +7,28 @@ import { flushSync } from "react-dom";
 import { Catalog } from "./catalog.jsx";
 import { EntryPage, ReportsPage } from "./workspace.jsx";
 
+(function setupMemorySync() {
+  const tauri = window.__TAURI__;
+  if (!tauri) return; // на случай запуска в обычном браузере
+
+  const sync = () =>
+    tauri.core.invoke("sync_webview_memory").catch((e) =>
+      console.error("sync_webview_memory failed:", e)
+    );
+
+  // Первичный вызов при старте
+  sync();
+
+  // Подписка на потерю фокуса (Rust-сторона тоже это делает, но дублирование защищает от пропусков)
+  tauri.window
+    .getCurrentWindow()
+    .onFocusChanged(({ payload: focused }) => {
+      if (!focused) sync();
+    })
+    .catch((e) => console.error("onFocusChanged failed:", e));
+})();
+
+
 const app = document.querySelector("#app");
 const reactRoot = createRoot(app);
 const now = new Date();
