@@ -845,3 +845,14 @@ button.text-button {
     transition: none !important;
   }
 }
+
+body.compat-mode *,
+body.compat-mode *::before,
+body.compat-mode *::after {
+  animation: none !important;
+  transition: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  filter: none !important;
+  text-shadow: none !important;
+}

@@ -21,6 +21,8 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "uuid",
+ "webview2-com",
+ "windows",
 ]
 
 [[package]]

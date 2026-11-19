@@ -1,8 +1,20 @@
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::{fs, io::Write, net::TcpListener, path::Path, process::{Child, Command, Stdio}, sync::Mutex, time::{Duration, SystemTime, UNIX_EPOCH}};
-use tauri::Manager;
+use std::{
+    fs,
+    io::Write,
+    net::TcpListener,
+    path::Path,
+    process::{Child, Command, Stdio},
+    sync::Mutex,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+use tauri::{Manager, WindowEvent};
+
 mod model_store;
+
+#[cfg(target_os = "windows")]
+mod webview_memory;
 
 struct Service {
     child: Mutex<Option<Child>>,
@@ -27,13 +39,17 @@ const BUNDLED_MODELS: &[(&str, &[u8])] = &[
 
 fn sync_bundled_models(data: &Path) -> std::io::Result<()> {
     let mut hasher = Sha256::new();
-    for (name, bytes) in BUNDLED_MODELS { hasher.update(name.as_bytes()); hasher.update(bytes); }
+    for (name, bytes) in BUNDLED_MODELS {
+        hasher.update(name.as_bytes());
+        hasher.update(bytes);
+    }
     let version = format!("{:x}", hasher.finalize());
     model_store::sync_models(data, BUNDLED_MODELS, &version)
 }
 
 fn hidden(command: &mut Command) -> &mut Command {
-    #[cfg(windows)] {
+    #[cfg(windows)]
+    {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
     }
@@ -44,9 +60,17 @@ impl Service {
     fn stop(&self) {
         if let Ok(mut slot) = self.child.lock() {
             if let Some(mut child) = slot.take() {
-                #[cfg(windows)] {
-                    let _ = hidden(Command::new("taskkill").args(["/PID", &child.id().to_string(), "/T", "/F"]))
-                        .stdout(Stdio::null()).stderr(Stdio::null()).status();
+                #[cfg(windows)]
+                {
+                    let _ = hidden(Command::new("taskkill").args([
+                        "/PID",
+                        &child.id().to_string(),
+                        "/T",
+                        "/F",
+                    ]))
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
                 }
                 let _ = child.kill();
                 let _ = child.wait();
@@ -56,7 +80,9 @@ impl Service {
 }
 
 impl Drop for Service {
-    fn drop(&mut self) { self.stop(); }
+    fn drop(&mut self) {
+        self.stop();
+    }
 }
 
 #[tauri::command]
@@ -64,86 +90,221 @@ fn export_report(app: tauri::AppHandle, contents: String, format: String) -> Res
     if !matches!(format.as_str(), "csv" | "json") || contents.len() > 4 * 1024 * 1024 {
         return Err("Некорректный формат или слишком большой отчёт".into());
     }
-    let directory = app.path().download_dir().map_err(|e| e.to_string())?.join("Агроэкосистема");
+    let directory = app
+        .path()
+        .download_dir()
+        .map_err(|e| e.to_string())?
+        .join("Агроэкосистема");
     fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_millis();
-    let path = directory.join(format!("agro-report-{stamp}-{}.{}", &uuid::Uuid::new_v4().to_string()[..8], format));
-    let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|e| e.to_string())?;
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_millis();
+    let path = directory.join(format!(
+        "agro-report-{stamp}-{}.{}",
+        &uuid::Uuid::new_v4().to_string()[..8],
+        format
+    ));
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|e| e.to_string())?;
     file.write_all(contents.as_bytes()).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
-async fn service_request(state: tauri::State<'_, Service>, path: String, body: Option<Value>, method: Option<String>) -> Result<Value, String> {
-    if let Some(error) = &state.startup_error { return Err(error.clone()); }
+async fn service_request(
+    state: tauri::State<'_, Service>,
+    path: String,
+    body: Option<Value>,
+    method: Option<String>,
+) -> Result<Value, String> {
+    if let Some(error) = &state.startup_error {
+        return Err(error.clone());
+    }
     let endpoint = path.split('?').next().unwrap_or("");
-    let catalog = ["/api/points", "/api/indicators", "/api/measurements"].iter().any(|base| {
-        endpoint == *base || endpoint.strip_prefix(&format!("{base}/")).is_some_and(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()))
-    });
-    let month_form = endpoint.strip_prefix("/api/months/").is_some_and(|month| month.len() == 7 && month.chars().all(|c| c.is_ascii_digit() || c == '-'));
-    let series = endpoint.strip_prefix("/api/series/").is_some_and(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()));
-    let allowed = path.len() <= 4096 && !path.contains(['#', '\\', '\r', '\n']) && (catalog || month_form || series
-        || matches!(endpoint, "/health" | "/meta" | "/dataset" | "/observations" | "/predict/indicators" | "/predict/dosing" | "/predict/sediments" | "/retrain"
-            | "/api/workspace" | "/api/months" | "/api/stats/summary" | "/api/stats/by-indicator" | "/api/stats/by-month" | "/api/reports/exceedances" | "/api/exchange/import" | "/api/exchange/export")
-        || (endpoint.starts_with("/observations/") && endpoint[14..].chars().all(|c| c.is_ascii_digit() || c == '-')));
-    if !allowed { return Err("Неизвестная операция".into()); }
+    let catalog = ["/api/points", "/api/indicators", "/api/measurements"]
+        .iter()
+        .any(|base| {
+            endpoint == *base
+                || endpoint
+                    .strip_prefix(&format!("{base}/"))
+                    .is_some_and(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()))
+        });
+    let month_form = endpoint
+        .strip_prefix("/api/months/")
+        .is_some_and(|month| month.len() == 7 && month.chars().all(|c| c.is_ascii_digit() || c == '-'));
+    let series = endpoint
+        .strip_prefix("/api/series/")
+        .is_some_and(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()));
+    let allowed = path.len() <= 4096
+        && !path.contains(['#', '\\', '\r', '\n'])
+        && (catalog
+            || month_form
+            || series
+            || matches!(
+                endpoint,
+                "/health"
+                    | "/meta"
+                    | "/dataset"
+                    | "/observations"
+                    | "/predict/indicators"
+                    | "/predict/dosing"
+                    | "/predict/sediments"
+                    | "/retrain"
+                    | "/api/workspace"
+                    | "/api/months"
+                    | "/api/stats/summary"
+                    | "/api/stats/by-indicator"
+                    | "/api/stats/by-month"
+                    | "/api/reports/exceedances"
+                    | "/api/exchange/import"
+                    | "/api/exchange/export"
+            )
+            || (endpoint.starts_with("/observations/")
+                && endpoint[14..].chars().all(|c| c.is_ascii_digit() || c == '-')));
+    if !allowed {
+        return Err("Неизвестная операция".into());
+    }
     let url = format!("{}{}", state.url, path);
     let verb = method.unwrap_or_else(|| if body.is_some() { "POST".into() } else { "GET".into() });
-    if !matches!(verb.as_str(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE") { return Err("Неизвестный HTTP-метод".into()); }
-    if !catalog && !(month_form && verb == "PATCH") && !matches!(verb.as_str(), "GET" | "POST") { return Err("Метод недоступен для этой операции".into()); }
+    if !matches!(verb.as_str(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE") {
+        return Err("Неизвестный HTTP-метод".into());
+    }
+    if !catalog && !(month_form && verb == "PATCH") && !matches!(verb.as_str(), "GET" | "POST") {
+        return Err("Метод недоступен для этой операции".into());
+    }
     let verb = reqwest::Method::from_bytes(verb.as_bytes()).map_err(|e| e.to_string())?;
     let mut request = state.client.request(verb, url);
-    if let Some(value) = body { request = request.json(&value); }
-    let response = request.bearer_auth(&state.token).send().await.map_err(|e| format!("Сервис ещё запускается или недоступен: {e}"))?;
+    if let Some(value) = body {
+        request = request.json(&value);
+    }
+    let response = request
+        .bearer_auth(&state.token)
+        .send()
+        .await
+        .map_err(|e| format!("Сервис ещё запускается или недоступен: {e}"))?;
     let status = response.status();
-    if status.as_u16() == 204 { return Ok(Value::Null); }
-    let value: Value = response.json().await.map_err(|e| format!("Некорректный ответ сервиса: {e}"))?;
+    if status.as_u16() == 204 {
+        return Ok(Value::Null);
+    }
+    let value: Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Некорректный ответ сервиса: {e}"))?;
     if !status.is_success() {
-        return Err(value.get("detail").map(|v| v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string())).unwrap_or_else(|| status.to_string()));
+        return Err(value
+            .get("detail")
+            .map(|v| v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string()))
+            .unwrap_or_else(|| status.to_string()));
     }
     Ok(value)
+}
+
+#[tauri::command]
+fn sync_webview_memory(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    webview_memory::sync_memory_level(&window);
+    #[cfg(not(target_os = "windows"))]
+    let _ = &window;
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); }
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+                // НОВОЕ: синхронизируем память после показа из трея/сворачивания
+                #[cfg(target_os = "windows")]
+                webview_memory::sync_memory_level(&window);
+            }
         }))
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let data = app.path().app_data_dir()?.join("wtp-data");
             fs::create_dir_all(&data)?;
             sync_bundled_models(&data)?;
+
             let listener = TcpListener::bind("127.0.0.1:0")?;
             let port = listener.local_addr()?.port();
             drop(listener);
             let token = uuid::Uuid::new_v4().to_string();
+
             let executable = std::env::current_exe()?;
-            let mut binary = executable.parent().ok_or("Нет каталога приложения")?.join(if cfg!(windows) { "python_service.exe" } else { "python_service" });
+            let mut binary = executable
+                .parent()
+                .ok_or("Нет каталога приложения")?
+                .join(if cfg!(windows) { "python_service.exe" } else { "python_service" });
             if cfg!(debug_assertions) {
-                binary = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries").join(if cfg!(windows) { "python_service-x86_64-pc-windows-msvc.exe" } else { "python_service-x86_64-unknown-linux-gnu" });
+                binary = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("binaries")
+                    .join(if cfg!(windows) {
+                        "python_service-x86_64-pc-windows-msvc.exe"
+                    } else {
+                        "python_service-x86_64-unknown-linux-gnu"
+                    });
             }
-            let log = fs::OpenOptions::new().create(true).truncate(true).write(true).open(data.join("service.log"))?;
+            let log = fs::OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .open(data.join("service.log"))?;
+
             let mut command = Command::new(binary);
-            command.args(["--host", "127.0.0.1", "--port", &port.to_string(), "--data-dir"])
-                .arg(&data).env("WTP_API_TOKEN", &token)
-                .stdin(Stdio::null()).stderr(Stdio::from(log.try_clone()?)).stdout(Stdio::from(log));
+            command
+                .args(["--host", "127.0.0.1", "--port", &port.to_string(), "--data-dir"])
+                .arg(&data)
+                .env("WTP_API_TOKEN", &token)
+                .stdin(Stdio::null())
+                .stderr(Stdio::from(log.try_clone()?))
+                .stdout(Stdio::from(log));
+
             let (child, startup_error) = match hidden(&mut command).spawn() {
                 Ok(child) => (Some(child), None),
                 Err(error) => (None, Some(format!("Не удалось запустить ML-сервис: {error}"))),
             };
+
             app.manage(Service {
                 child: Mutex::new(child),
-                client: reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(300)).build()?,
-                url: format!("http://127.0.0.1:{port}"), token, startup_error,
+                client: reqwest::Client::builder()
+                    .no_proxy()
+                    .timeout(Duration::from_secs(300))
+                    .build()?,
+                url: format!("http://127.0.0.1:{port}"),
+                token,
+                startup_error,
             });
+
+            // НОВОЕ: обработка событий окна для управления памятью WebView2
+            if let Some(window) = app.get_webview_window("main") {
+                let win_events = window.clone();
+                window.on_window_event(move |event| match event {
+                    WindowEvent::Focused(_) | WindowEvent::Resized(_) => {
+                        #[cfg(target_os = "windows")]
+                        webview_memory::sync_memory_level(&win_events);
+                    }
+                    _ => {}
+                });
+            }
+
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![service_request, export_report])
+        .invoke_handler(tauri::generate_handler![
+            service_request,
+            export_report,
+            sync_webview_memory
+        ])
         .build(tauri::generate_context!())
         .expect("Не удалось запустить Агроэкосистему");
+
     app.run(|handle, event| {
-        if matches!(event, tauri::RunEvent::Exit) { handle.state::<Service>().stop(); }
+        if matches!(event, tauri::RunEvent::Exit) {
+            handle.state::<Service>().stop();
+        }
     });
 }
